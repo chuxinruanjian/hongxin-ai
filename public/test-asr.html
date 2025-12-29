@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>百度短语音识别测试 - HongXinOS</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+    }
+
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .status {
+      text-align: center;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      font-weight: 500;
+      transition: all 0.3s ease;
+    }
+
+    .status.disconnected {
+      background: #fee;
+      color: #c33;
+    }
+
+    .status.connected {
+      background: #efe;
+      color: #3c3;
+    }
+
+    .status.recording {
+      background: #ffeaa7;
+      color: #d63031;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .status.processing {
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      flex: 1;
+      padding: 15px 30px;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      color: white;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button:not(:disabled):hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    }
+
+    button:not(:disabled):active {
+      transform: translateY(0);
+    }
+
+    #startBtn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    #stopBtn {
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    #clearBtn {
+      background: #95a5a6;
+      flex: 0 0 auto;
+      padding: 15px 20px;
+    }
+
+    .result-container {
+      margin-top: 20px;
+    }
+
+    .result-label {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .result-box {
+      background: #f8f9fa;
+      border: 2px solid #e9ecef;
+      border-radius: 10px;
+      padding: 20px;
+      min-height: 100px;
+      max-height: 300px;
+      overflow-y: auto;
+      font-size: 18px;
+      line-height: 1.6;
+      color: #333;
+      margin-bottom: 15px;
+      transition: all 0.3s ease;
+      word-wrap: break-word;
+    }
+
+    .result-box.has-content {
+      background: #e3f2fd;
+      border-color: #2196f3;
+    }
+
+    .result-box.empty {
+      color: #999;
+      font-style: italic;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .result-box.error {
+      background: #ffebee;
+      border-color: #f44336;
+      color: #c62828;
+    }
+
+    .logs {
+      background: #263238;
+      color: #aed581;
+      border-radius: 10px;
+      padding: 15px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .logs::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .logs::-webkit-scrollbar-track {
+      background: #37474f;
+      border-radius: 10px;
+    }
+
+    .logs::-webkit-scrollbar-thumb {
+      background: #546e7a;
+      border-radius: 10px;
+    }
+
+    .log-entry {
+      margin-bottom: 5px;
+    }
+
+    .log-time {
+      color: #81c784;
+      margin-right: 5px;
+    }
+
+    .log-type {
+      font-weight: bold;
+      margin-right: 5px;
+    }
+
+    .log-type.info {
+      color: #64b5f6;
+    }
+
+    .log-type.success {
+      color: #81c784;
+    }
+
+    .log-type.error {
+      color: #e57373;
+    }
+
+    .config {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+
+    .config-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .config-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .config-label {
+      flex: 0 0 100px;
+      font-weight: 600;
+      color: #666;
+      font-size: 14px;
+    }
+
+    .config-value {
+      flex: 1;
+      font-size: 12px;
+    }
+
+    .info-box {
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      padding: 12px;
+      margin-bottom: 20px;
+      border-radius: 5px;
+      font-size: 13px;
+      color: #1565c0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎤 短语音识别测试</h1>
+    <p class="subtitle">HongXinOS - 百度短语音识别极速版</p>
+
+    <div id="status" class="status disconnected">
+      ⚫ 未连接
+    </div>
+
+    <div class="info-box">
+      <strong>使用说明：</strong><br>
+      1. 点击"开始录音"开始收集音频数据<br>
+      2. 说话后点击"停止录音"进行识别<br>
+      3. 识别结果会在停止后显示
+    </div>
+
+    <div class="config">
+      <div class="config-row">
+        <div class="config-label">服务器地址:</div>
+        <div class="config-value" style="font-family: monospace; color: #666;">
+          ws://localhost:9650/speech
+        </div>
+      </div>
+      <div class="config-row">
+        <div class="config-label">麦克风权限:</div>
+        <div class="config-value">
+          <span id="permissionStatus" style="color: #666;">检查中...</span>
+          <button id="checkPermissionBtn" style="margin-left: 10px; padding: 4px 8px; font-size: 11px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">检查权限</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="startBtn">🎙️ 开始录音</button>
+      <button id="stopBtn" disabled>⏹️ 停止录音</button>
+      <button id="clearBtn">🗑️ 清空</button>
+    </div>
+
+    <div class="result-container">
+      <div class="result-label">识别结果</div>
+      <div id="result" class="result-box empty">等待识别结果...</div>
+
+      <div class="result-label">日志</div>
+      <div id="logs" class="logs"></div>
+    </div>
+  </div>
+
+  <script>
+    let ws;
+    let audioContext;
+    let processor;
+    let mediaStream;
+    let audioBytesSent = 0;
+
+    const statusEl = document.getElementById('status');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const resultEl = document.getElementById('result');
+    const logsEl = document.getElementById('logs');
+    const permissionStatusEl = document.getElementById('permissionStatus');
+    const checkPermissionBtn = document.getElementById('checkPermissionBtn');
+
+    function log(message, type = 'info') {
+      const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      const logEntry = document.createElement('div');
+      logEntry.className = 'log-entry';
+      logEntry.innerHTML = `
+        <span class="log-time">[${time}]</span>
+        <span class="log-type ${type}">[${type.toUpperCase()}]</span>
+        ${message}
+      `;
+      logsEl.insertBefore(logEntry, logsEl.firstChild);
+
+      // 限制日志条数
+      while (logsEl.children.length > 50) {
+        logsEl.removeChild(logsEl.lastChild);
+      }
+    }
+
+    function updateStatus(text, className) {
+      statusEl.textContent = text;
+      statusEl.className = `status ${className}`;
+    }
+
+    startBtn.onclick = async () => {
+      try {
+        // 0. 清空之前的结果
+        resultEl.textContent = '等待识别结果...';
+        resultEl.className = 'result-box empty';
+        audioBytesSent = 0;
+        log('已清空之前的结果', 'info');
+
+        // 0.5. 先检查并请求麦克风权限
+        updateStatus('🎤 检查麦克风权限...', 'disconnected');
+
+        let permissionStatus = 'prompt';
+        if (navigator.permissions) {
+          try {
+            const result = await navigator.permissions.query({ name: 'microphone' });
+            permissionStatus = result.state;
+            log(`当前麦克风权限状态: ${permissionStatus}`, 'info');
+
+            if (permissionStatus === 'denied') {
+              const errorMsg = '麦克风权限已被拒绝。\n\n请按以下步骤重置权限：\n1. 点击地址栏左侧的锁图标\n2. 找到"麦克风"选项\n3. 选择"允许"或"询问"\n4. 刷新页面后重试';
+              log(`❌ ${errorMsg}`, 'error');
+              updateStatus('❌ 麦克风权限被拒绝', 'disconnected');
+              alert(errorMsg);
+              return;
+            }
+          } catch (e) {
+            log('无法查询权限状态，直接请求权限', 'info');
+          }
+        }
+
+        // 请求麦克风权限
+        updateStatus('🎤 请求麦克风权限...', 'disconnected');
+        log('正在请求麦克风权限...', 'info');
+
+        try {
+          const testStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              sampleRate: 16000,
+              channelCount: 1,
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }
+          });
+          testStream.getTracks().forEach(track => track.stop());
+
+          if (permissionStatus === 'prompt') {
+            log('✅ 麦克风权限已获取（已弹出权限请求对话框）', 'success');
+          } else {
+            log('✅ 麦克风权限已获取（使用已保存的权限）', 'success');
+          }
+        } catch (error) {
+          const errorMsg = error.name === 'NotAllowedError'
+            ? '麦克风权限被拒绝。\n\n请按以下步骤重置权限：\n1. 点击地址栏左侧的锁图标\n2. 找到"麦克风"选项\n3. 选择"允许"或"询问"\n4. 刷新页面后重试'
+            : error.name === 'NotFoundError'
+            ? '未找到麦克风设备，请检查设备连接'
+            : `无法访问麦克风: ${error.message}`;
+
+          log(`❌ ${errorMsg}`, 'error');
+          updateStatus('❌ 麦克风权限失败', 'disconnected');
+          alert(errorMsg);
+          return;
+        }
+
+        // 1. 连接 WebSocket
+        updateStatus('🔄 正在连接...', 'disconnected');
+        log('正在连接 WebSocket...', 'info');
+
+        // ws = new WebSocket('ws://localhost:9650/speech');
+        ws = new WebSocket('wss://ai.chuxinruanjian.com/speech');
+
+        ws.onopen = () => {
+          updateStatus('✅ 已连接', 'connected');
+          log('WebSocket 连接成功', 'success');
+
+          // 2. 启动语音识别
+          log('发送 start 指令', 'info');
+          ws.send(JSON.stringify({
+            type: 'start',
+            num: 1
+          }));
+        };
+
+        ws.onmessage = (event) => {
+          const message = JSON.parse(event.data);
+          log(`收到消息: ${message.type}`, 'info');
+
+          if (message.type === 'started') {
+            updateStatus('🔴 正在录音...', 'recording');
+            log('语音识别已启动，开始录音', 'success');
+            startRecording();
+          } else if (message.type === 'stopped') {
+            updateStatus('✅ 已停止', 'connected');
+            log('语音识别已停止', 'info');
+
+            // 显示识别结果
+            if (message.hasResult && message.result) {
+              resultEl.textContent = message.result.fullText || message.result.text;
+              resultEl.className = 'result-box has-content';
+              log(`✅ 识别成功: ${message.result.fullText || message.result.text}`, 'success');
+            } else {
+              resultEl.textContent = message.error || '识别失败或无结果';
+              resultEl.className = 'result-box error';
+              log(`❌ 识别失败: ${message.error || '无结果'}`, 'error');
+            }
+
+            stopRecording();
+          } else if (message.type === 'ERROR') {
+            updateStatus('❌ 错误', 'disconnected');
+            log(`错误: ${message.message}`, 'error');
+            resultEl.textContent = `错误: ${message.message}`;
+            resultEl.className = 'result-box error';
+            alert(`错误: ${message.message}`);
+          } else if (message.type === 'pong') {
+            log('收到心跳响应', 'info');
+          }
+        };
+
+        ws.onerror = (error) => {
+          updateStatus('❌ 连接错误', 'disconnected');
+          log('WebSocket 错误', 'error');
+          console.error('WebSocket error:', error);
+        };
+
+        ws.onclose = () => {
+          updateStatus('⚫ 未连接', 'disconnected');
+          log('WebSocket 连接已关闭', 'info');
+          stopRecording();
+        };
+
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+
+      } catch (error) {
+        log(`错误: ${error.message}`, 'error');
+        console.error('Error:', error);
+      }
+    };
+
+    stopBtn.onclick = () => {
+      log('停止录音...', 'info');
+      updateStatus('⏳ 正在识别...', 'processing');
+
+      // 停止录音
+      stopRecording();
+
+      // 停止识别
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'stop' }));
+      } else {
+        updateStatus('❌ 连接已断开', 'disconnected');
+        log('WebSocket 连接已断开，无法发送停止指令', 'error');
+      }
+    };
+
+    clearBtn.onclick = () => {
+      resultEl.textContent = '等待识别结果...';
+      resultEl.className = 'result-box empty';
+      log('已清空识别结果', 'info');
+    };
+
+    async function startRecording() {
+      try {
+        log('获取麦克风音频流...', 'info');
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+
+        log('✅ 麦克风音频流已获取', 'success');
+
+        // 创建音频上下文
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({
+          sampleRate: 16000
+        });
+
+        const source = audioContext.createMediaStreamSource(mediaStream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+
+        processor.onaudioprocess = (e) => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            const inputData = e.inputBuffer.getChannelData(0);
+
+            // 转换为 16bit PCM
+            const pcmData = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+              pcmData[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
+            }
+
+            // 发送音频数据
+            ws.send(pcmData.buffer);
+            audioBytesSent += pcmData.buffer.byteLength;
+
+            // 每 1MB 记录一次
+            if (audioBytesSent > 0 && audioBytesSent % (1024 * 1024) < 8192) {
+              log(`已发送音频: ${(audioBytesSent / 1024 / 1024).toFixed(2)} MB`, 'info');
+            }
+          }
+        };
+
+        log('录音已开始', 'success');
+
+      } catch (error) {
+        const errorMsg = error.name === 'NotAllowedError'
+          ? '麦克风权限被拒绝，请刷新页面重新授权'
+          : error.name === 'NotFoundError'
+          ? '未找到麦克风设备'
+          : `录音失败: ${error.message}`;
+
+        log(`❌ ${errorMsg}`, 'error');
+        console.error('Recording error:', error);
+        updateStatus('❌ 录音失败', 'disconnected');
+        alert(errorMsg);
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'stop' }));
+        }
+      }
+    }
+
+    function stopRecording() {
+      if (processor) {
+        processor.disconnect();
+        processor = null;
+      }
+
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+      }
+
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+      }
+
+      log('录音已停止', 'info');
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    }
+
+    // 检查麦克风权限状态
+    async function checkPermissionStatus() {
+      if (!navigator.permissions) {
+        permissionStatusEl.textContent = '不支持权限查询';
+        permissionStatusEl.style.color = '#999';
+        return;
+      }
+
+      try {
+        const result = await navigator.permissions.query({ name: 'microphone' });
+        const status = result.state;
+
+        if (status === 'granted') {
+          permissionStatusEl.textContent = '✅ 已允许';
+          permissionStatusEl.style.color = '#3c3';
+        } else if (status === 'denied') {
+          permissionStatusEl.textContent = '❌ 已拒绝';
+          permissionStatusEl.style.color = '#c33';
+        } else {
+          permissionStatusEl.textContent = '❓ 未设置（点击开始录音时会弹出请求）';
+          permissionStatusEl.style.color = '#f90';
+        }
+
+        result.onchange = () => {
+          checkPermissionStatus();
+        };
+      } catch (error) {
+        permissionStatusEl.textContent = '无法查询权限状态';
+        permissionStatusEl.style.color = '#999';
+      }
+    }
+
+    checkPermissionBtn.onclick = () => {
+      checkPermissionStatus();
+      log('重新检查麦克风权限状态', 'info');
+    };
+
+    // 页面初始化
+    log('页面已加载，准备就绪', 'success');
+    log('请点击"开始录音"按钮开始测试', 'info');
+    checkPermissionStatus();
+  </script>
+</body>
+</html>
