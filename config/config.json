@@ -1,23 +1,28 @@
 {
   "development": {
     "username": "root",
-    "password": null,
-    "database": "database_development",
-    "host": "127.0.0.1",
-    "dialect": "mysql"
+    "password": "9c55267afe6b89de",
+    "database": "hy_ypt",
+    "host": "118.178.238.19",
+    "dialect": "mysql",
+    "timezone": "+08:00",
+    "logging": false
   },
   "test": {
     "username": "root",
     "password": null,
     "database": "database_test",
     "host": "127.0.0.1",
-    "dialect": "mysql"
+    "dialect": "mysql",
+    "timezone": "+08:00"
   },
   "production": {
-    "username": "root",
-    "password": null,
-    "database": "database_production",
+    "username": "hy_ypt",
+    "password": "N3nKGxSWw9ArZnPP",
+    "database": "hy_ypt",
     "host": "127.0.0.1",
-    "dialect": "mysql"
+    "dialect": "mysql",
+    "timezone": "+08:00",
+    "logging": false
   }
 }

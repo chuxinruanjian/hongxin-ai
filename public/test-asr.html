@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>百度短语音识别测试 - HongXinOS</title>
+  <title>语音识别测试 - HongXinOS</title>
   <style>
     * {
       margin: 0;
@@ -268,7 +268,7 @@
 <body>
   <div class="container">
     <h1>🎤 短语音识别测试</h1>
-    <p class="subtitle">HongXinOS - 百度短语音识别极速版</p>
+    <p class="subtitle">HongXinOS - 语音识别</p>
 
     <div id="status" class="status disconnected">
       ⚫ 未连接
@@ -418,8 +418,8 @@
         updateStatus('🔄 正在连接...', 'disconnected');
         log('正在连接 WebSocket...', 'info');
 
-        // ws = new WebSocket('ws://localhost:9650/speech');
-        ws = new WebSocket('wss://ai.chuxinruanjian.com/speech');
+        ws = new WebSocket('ws://localhost:9650/speech');
+        // ws = new WebSocket('wss://ai.chuxinruanjian.com/speech');
 
         ws.onopen = () => {
           updateStatus('✅ 已连接', 'connected');

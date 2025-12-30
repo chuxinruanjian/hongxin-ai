@@ -22,11 +22,6 @@ async function getSharedAccessToken(apiKey, secretKey) {
     cached.expireTime &&
     dayjs().isBefore(cached.expireTime)
   ) {
-    console.log(
-      `使用缓存的 Access Token，过期时间: ${cached.expireTime.format(
-        "YYYY-MM-DD HH:mm:ss"
-      )}`
-    );
     return cached.token;
   }
 
@@ -38,7 +33,6 @@ async function getSharedAccessToken(apiKey, secretKey) {
       client_secret: secretKey,
     };
 
-    console.log(`正在获取百度 Access Token...`);
     const response = await axios.get(url, { params });
 
     if (response.data.access_token) {
@@ -52,11 +46,6 @@ async function getSharedAccessToken(apiKey, secretKey) {
         expireTime: expireTime,
       });
 
-      console.log(
-        `✅ Access Token 获取成功，过期时间: ${expireTime.format(
-          "YYYY-MM-DD HH:mm:ss"
-        )}`
-      );
       return token;
     } else {
       throw new Error(
@@ -64,7 +53,6 @@ async function getSharedAccessToken(apiKey, secretKey) {
       );
     }
   } catch (error) {
-    console.error("❌ 获取百度 Access Token 失败:", error.message);
     throw error;
   }
 }
@@ -115,10 +103,6 @@ class BaiduShortAsrService {
         cuid: this.config.cuid,
       };
 
-      console.log(
-        `正在调用百度短语音识别极速版 API，音频大小: ${audioBuffer.length} bytes`
-      );
-
       const response = await axios.post(baseUrl, bodyParams, {
         timeout: 10000,
       });
@@ -141,7 +125,6 @@ class BaiduShortAsrService {
         };
       }
     } catch (error) {
-      console.error("❌ 调用百度短语音识别 API 失败:", error.message);
       if (error.response) {
         console.error("响应数据:", error.response.data);
       }
