@@ -1,6 +1,9 @@
 node_modules/
 uploads/
 
+# 忽略配置文件
+.env
+config/config.json
 
 # Log files
 npm-debug.log*
