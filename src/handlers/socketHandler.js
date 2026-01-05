@@ -49,7 +49,6 @@ const handleSocketConnection = (ws, wss, req) => {
 				case "start":
 					audioChunks = [];
 					sessionData.name = command.name
-					sessionData.num = command.num
 					sendMessage(ws, {
 						type: "started",
 						message: `语音识别已启动，用户: ${sessionData.name}`
@@ -171,7 +170,7 @@ async function sendToBigModel(text, sessionData) {
 	try {
 		const res = await axios.post(url, {
 			text: text,
-			type: sessionData.num || 1,
+			type: 1,
 			user: {name: sessionData.name || '通通'}
 		}, {timeout: 5000});
 		return res.data;
