@@ -3,13 +3,14 @@ const express = require("express");
 const cors = require("cors");
 const http = require("http");
 const path = require("path");
-const dayjs = require("dayjs");
 const db = require("./models/index");
+const { startMqtt } = require('./src/mqtt');
+const {handleUpgrade} = require("./src/handlers/socketRouter");
+const {connectToCloud} = require("./src/services/cloudNotifier");
+const ConfigService = require('./src/services/configService');
 
-const { initMqttBroker } = require("./src/handlers/mqttBroker");
-const { handleUpgrade } = require("./src/handlers/socketRouter");
-const { connectToCloud } = require("./src/services/cloudNotifier");
 const audioRouter = require("./src/routes/audio");
+const broadcastRouter = require('./src/routes/broadcast');
 
 const app = express();
 app.use(cors());
@@ -19,44 +20,29 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 const server = http.createServer(app);
 
-// 1. MQTT
-const aedesInstance = initMqttBroker();
-
-// 2. WebSocket
 // 监听所有 WebSocket 升级请求
 server.on("upgrade", handleUpgrade);
 
-// 3. 业务路由挂载
+// 业务路由挂载
 app.use("/api/audio", audioRouter);
 
-// 广播 API (也可以抽离到单独的 routes 文件)
-app.post("/api/broadcast", (req, res) => {
-	const { exhibition_id } = req.body;
-	const broadcastMessage = JSON.stringify({
-		type: "SWITCH_EXHIBITION",
-		exhibition_id,
-		operator: "system",
-		time: dayjs().format("YYYY-MM-DD HH:mm:ss"),
-		timestamp: dayjs().valueOf(),
-	});
-
-	aedesInstance.publish({
-		topic: "device/all/event",
-		payload: broadcastMessage,
-		qos: 1,
-		retain: true,
-	});
-	res.json({ status: "success", message: "广播已发送" });
-});
+// 广播
+app.use('/api/broadcast', broadcastRouter);
 
 const PORT = process.env.PORT || 3000;
 
 // 启动
 async function startServer() {
 	try {
+		// 初始化加载配置
+		await ConfigService.load();
+
 		// 测试数据库连接是否正常
 		await db.sequelize.authenticate();
 		console.log('MySQL 连接成功');
+
+		// MQTT
+		startMqtt();
 
 		// 只有数据库连接成功后，才启动 HTTP 服务
 		server.listen(PORT, () => {

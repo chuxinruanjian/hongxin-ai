@@ -1,270 +1,207 @@
 const dayjs = require("dayjs");
 const fs = require("fs");
 const path = require("path");
-const {BaiduShortAsrService} = require("../services/baiduShortAsrService");
 const {default: axios} = require("axios");
-const { v4: uuidv4 } = require("uuid");
+const {v4: uuidv4} = require("uuid");
+const ConfigService = require('../services/configService');
+
+// --- 常量配置 ---
+const AUDIO_SAVE_DIR = path.join(process.cwd(), "uploads", "records");
+const TIME_FORMAT = "YYYY-MM-DD HH:mm:ss";
+const BYTEDANCE_ASR_URL = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash";
 
 // 确保存储目录存在
-const AUDIO_SAVE_DIR = path.join(process.cwd(), "uploads", "records");
 if (!fs.existsSync(AUDIO_SAVE_DIR)) {
 	fs.mkdirSync(AUDIO_SAVE_DIR, {recursive: true});
 }
 
-const handleSocketConnection = (ws, wss, req) => {
-	const clientIp = req.socket.remoteAddress;
-
-	// 用于收集音频数据（用于短语音识别）
-	const audioChunks = [];
-
-	// 监听客户端发来的消息
-	ws.on("message", async (data, isBinary) => {
-		if (isBinary) {
-			// 收集音频数据（用于短语音识别）
-			audioChunks.push(Buffer.from(data));
-		} else {
-			// 这是普通的文本消息 (String)
-			const message = data.toString();
-
-			try {
-				const command = JSON.parse(message);
-
-				// 处理不同的指令（支持设备的小写指令格式）
-				const commandType = command.type.toLowerCase();
-
-				switch (commandType) {
-					case "start":
-						// 启动语音识别（开始收集音频数据）
-						// 清空之前收集的音频数据
-						audioChunks.length = 0;
-
-						ws.send(
-							JSON.stringify({
-								type: "started",
-								message: "语音识别已启动，开始收集音频数据",
-								time: dayjs().format("YYYY-MM-DD HH:mm:ss"),
-							})
-						);
-						break;
-
-					case "stop":
-						// 停止语音识别并调用短语音识别
-						console.log("停止语音识别");
-
-						// 构建响应消息
-						const response = {
-							type: "stopped",
-							message: "语音识别已停止",
-							time: dayjs().format("YYYY-MM-DD HH:mm:ss"),
-						};
-
-						// 组合收集的音频数据并调用短语音识别
-						if (audioChunks.length > 0) {
-							try {
-								// 组合所有音频数据
-								const audioBuffer = Buffer.concat(audioChunks);
-
-								// 创建短语音识别服务
-								const apiKey = process.env.BAIDU_API_KEY;
-								const secretKey = process.env.BAIDU_SECRET_KEY;
-
-								if (apiKey && secretKey) {
-									const shortAsrService = new BaiduShortAsrService({
-										apiKey: apiKey,
-										secretKey: secretKey,
-										rate: 16000,
-									});
-
-									// 调用短语音识别
-									const shortAsrResult = await shortAsrService.recognize(
-										audioBuffer
-									);
-
-									if (shortAsrResult.success) {
-										response.hasResult = true;
-										response.result = {
-											source: "short_asr",
-											text: shortAsrResult.result,
-											fullText: shortAsrResult.result,
-										};
-
-										// 异步发送到大模型（不等待响应，立即通知客户端）
-										sendToBigModel(
-											{
-												fullText: shortAsrResult.result,
-												count: 1,
-												texts: [shortAsrResult.result],
-											},
-											command
-										).catch((error) => {
-											// 异步请求的错误不影响主流程，只记录日志
-											console.error("大模型请求失败（异步）:", error.message);
-										});
-									} else {
-										response.hasResult = false;
-										response.result = null;
-										response.error = shortAsrResult.error;
-									}
-								} else {
-									console.warn(
-										"未配置 BAIDU_API_KEY 和 BAIDU_SECRET_KEY，无法进行短语音识别"
-									);
-									response.hasResult = false;
-									response.result = null;
-									response.error = "未配置百度 API 密钥";
-								}
-
-								// 1. 转换成 WAV
-								const wavBuffer = pcmToWav(audioBuffer, 16000, 1, 16);
-
-								// // 将音频数据转换为 base64
-								// const audioBase64 = wavBuffer.toString("base64");
-								// // 豆包语音服务
-								// const res = await axios.post(
-								// 	"https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash",
-								// 	{
-								// 		user: {
-								// 			uid: '3925223064'
-								// 		},
-								// 		audio: {
-								// 			data: audioBase64
-								// 		},
-								// 		request: {
-								// 			model_name: "bigmodel"
-								// 		}
-								// 	},
-								// 	{
-								// 		headers: {
-								// 			'X-Api-App-Key': '3925223064',
-								// 			'X-Api-Access-Key': 'YgZJAvf-0GVZsRnwyC97Lrd6o5SPHAWe',
-								// 			'X-Api-Resource-Id': 'volc.bigasr.auc_turbo',
-								// 			'X-Api-Request-Id': uuidv4(),
-								// 			'X-Api-Sequence': -1
-								// 		}
-								// 	}
-								// );
-
-								// 2. 准备路径和文件名
-								const fileName = `${dayjs().format("YYYYMMDD_HHmmss")}.wav`;
-								const filePath = path.join(AUDIO_SAVE_DIR, fileName);
-								fs.writeFileSync(filePath, wavBuffer);
-							} catch (error) {
-								console.log(error)
-								response.hasResult = false;
-								response.result = null;
-								response.error = error.message;
-							}
-						} else {
-							response.hasResult = false;
-							response.result = null;
-							response.error = "没有音频数据";
-						}
-
-						// 清空音频数据
-						audioChunks.length = 0;
-
-						ws.send(JSON.stringify(response));
-						break;
-
-					case "ping":
-						// 心跳检测
-						ws.send(
-							JSON.stringify({
-								type: "pong",
-								time: dayjs().format("YYYY-MM-DD HH:mm:ss"),
-							})
-						);
-						break;
-
-					default:
-						console.warn(`未知的指令类型: ${command.type}`);
-				}
-			} catch (error) {
-				ws.send(
-					JSON.stringify({
-						type: "ERROR",
-						message: error.message,
-						time: dayjs().format("YYYY-MM-DD HH:mm:ss"),
-					})
-				);
-			}
-		}
-	});
-
-	ws.on("close", () => {
-		console.log(`WS 连接已断开 (${clientIp})`);
-	});
-
-	ws.on("error", (err) => {
-		console.error("WS 错误:", err);
-	});
+/**
+ * 统一发送 WS 消息的方法
+ */
+const sendMessage = (ws, payload) => {
+	if (ws.readyState === 1) { // OPEN
+		ws.send(JSON.stringify({
+			...payload,
+			time: dayjs().format(TIME_FORMAT)
+		}));
+	}
 };
 
-async function sendToBigModel(result, command) {
-	try {
-		const res = await axios.post(
-			"http://192.168.0.100:8888/api/bigmodel",
-			{
-				text: result.fullText,
-				type: command.num || 1,
-				user: {name: command.name || "通通"},
-			},
-			{
-				timeout: 5000, // 一定要加，防止卡死
-			}
-		);
+const handleSocketConnection = (ws, wss, req) => {
+	const clientIp = req.socket.remoteAddress;
+	let audioChunks = []; // 改用 let 方便彻底清空内存
 
-		console.log("请求成功:", res.data);
-		return res.data;
-	} catch (err) {
-		// ❗错误被捕获，Node 不会崩
-		if (err.response) {
-			console.error("接口返回错误:", err.response.status, err.response.data);
-		} else if (err.request) {
-			console.error("请求已发送但无响应（网络/服务未启动）");
-		} else {
-			console.error("请求配置错误:", err.message);
+	ws.on("message", async (data, isBinary) => {
+		if (isBinary) {
+			audioChunks.push(Buffer.from(data));
+			return;
 		}
 
-		return null;
+		try {
+			const message = data.toString();
+			const command = JSON.parse(message);
+			if (!command.type) return;
+
+			const commandType = command.type.toLowerCase();
+
+			switch (commandType) {
+				case "start":
+					audioChunks = []; // 彻底重置
+					sendMessage(ws, {
+						type: "started",
+						message: "语音识别已启动，开始收集音频数据"
+					});
+					// 异步触发，不阻塞主流程
+					sendToThink(command).catch(() => {
+					});
+					break;
+
+				case "stop":
+					await handleStopCommand(ws, audioChunks, command);
+					audioChunks = []; // 处理完后清空
+					break;
+
+				case "ping":
+					sendMessage(ws, {type: "pong"});
+					break;
+
+				default:
+					console.warn(`[WS] 未知指令: ${commandType} from ${clientIp}`);
+			}
+		} catch (error) {
+			sendMessage(ws, {type: "ERROR", message: error.message});
+		}
+	});
+
+	ws.on("close", () => console.log(`[WS] 连接断开: ${clientIp}`));
+	ws.on("error", (err) => console.error("[WS] 异常:", err));
+};
+
+/**
+ * 专门处理 STOP 指令及 ASR 逻辑
+ */
+async function handleStopCommand(ws, audioChunks, command) {
+	console.log("停止语音识别并处理音频");
+
+	if (audioChunks.length === 0) {
+		sendMessage(ws, {type: "stopped", hasResult: false, error: "没有音频数据"});
+		return;
+	}
+
+	try {
+		const audioBuffer = Buffer.concat(audioChunks);
+		const wavBuffer = pcmToWav(audioBuffer); // 使用默认参数
+
+		// 1. 调用豆包 ASR
+		const speechKey = ConfigService.get('doubao_speech_key');
+		const speechToken = ConfigService.get('doubao_speech_token');
+
+		const res = await axios.post(BYTEDANCE_ASR_URL, {
+			user: {uid: speechKey},
+			audio: {data: wavBuffer.toString("base64")},
+			request: {model_name: "bigmodel"}
+		}, {
+			headers: {
+				'X-Api-App-Key': speechKey,
+				'X-Api-Access-Key': speechToken,
+				'X-Api-Resource-Id': 'volc.bigasr.auc_turbo',
+				'X-Api-Request-Id': uuidv4(),
+				'X-Api-Sequence': -1
+			},
+			timeout: 10000 // ASR 超时限制
+		});
+
+		const text = res.data?.result?.text || "";
+
+		// 2. 响应客户端
+		sendMessage(ws, {
+			type: "stopped",
+			message: "语音识别已停止",
+			hasResult: true,
+			result: {source: "short_asr", text}
+		});
+
+		// 3. 异步触发后续逻辑（保存文件 & 大模型处理）
+		saveAudioFile(wavBuffer).catch(console.error);
+		sendToBigModel(text, command).catch(() => {
+		});
+
+	} catch (error) {
+		console.error("ASR处理失败:", error.message);
+		sendMessage(ws, {
+			type: "stopped",
+			hasResult: false,
+			error: `ASR服务异常: ${error.message}`
+		});
 	}
 }
 
 /**
- * 将 PCM 数据封装成 WAV 格式
- * @param {Buffer} pcmBuffer 原始PCM数据
- * @param {number} sampleRate 采样率 (百度通常是 16000)
- * @param {number} numChannels 声道数 (通常是 1)
- * @param {number} bitsPerSample 位深 (通常是 16)
+ * 持久化音频文件
+ */
+async function saveAudioFile(buffer) {
+	const fileName = `${dayjs().format("YYYYMMDD_HHmmss")}_${uuidv4().slice(0, 8)}.wav`;
+	const filePath = path.join(AUDIO_SAVE_DIR, fileName);
+	await fs.promises.writeFile(filePath, buffer);
+}
+
+async function sendToThink(command) {
+	const url = ConfigService.get('digital_start');
+	if (!url) return null;
+
+	try {
+		const res = await axios.post(url, {
+			user: {name: command.name || ''}
+		}, {timeout: 5000});
+		return res.data;
+	} catch (err) {
+		logAxiosError('ThinkAPI', err);
+		return null;
+	}
+}
+
+async function sendToBigModel(text, command) {
+	const url = ConfigService.get('digital_url');
+	if (!url) return null;
+
+	try {
+		const res = await axios.post(url, {
+			text: text,
+			type: command.num || 1,
+			user: {name: command.name || ''}
+		}, {timeout: 5000});
+		return res.data;
+	} catch (err) {
+		logAxiosError('BigModelAPI', err);
+		return null;
+	}
+}
+
+function logAxiosError(label, err) {
+	if (err.response) {
+		console.error(`[${label}] 响应错误:`, err.response.status);
+	} else {
+		console.error(`[${label}] 网络错误:`, err.message);
+	}
+}
+
+/**
+ * PCM 转 WAV 头部封装
  */
 function pcmToWav(pcmBuffer, sampleRate = 16000, numChannels = 1, bitsPerSample = 16) {
 	const header = Buffer.alloc(44);
-
-	// RIFF identifier 'RIFF'
 	header.write('RIFF', 0);
-	// file length
 	header.writeUInt32LE(36 + pcmBuffer.length, 4);
-	// RIFF type 'WAVE'
 	header.write('WAVE', 8);
-	// format chunk identifier 'fmt '
 	header.write('fmt ', 12);
-	// format chunk length
 	header.writeUInt32LE(16, 16);
-	// sample format (raw)
-	header.writeUInt16LE(1, 20);
-	// channel count
+	header.writeUInt16LE(1, 20); // PCM format
 	header.writeUInt16LE(numChannels, 22);
-	// sample rate
 	header.writeUInt32LE(sampleRate, 24);
-	// byte rate (sample rate * block align)
 	header.writeUInt32LE(sampleRate * numChannels * (bitsPerSample / 8), 28);
-	// block align (channel count * bytes per sample)
 	header.writeUInt16LE(numChannels * (bitsPerSample / 8), 32);
-	// bits per sample
 	header.writeUInt16LE(bitsPerSample, 34);
-	// data chunk identifier 'data'
 	header.write('data', 36);
-	// data chunk length
 	header.writeUInt32LE(pcmBuffer.length, 40);
 
 	return Buffer.concat([header, pcmBuffer]);
