@@ -112,7 +112,7 @@ async function handleStopCommand(ws, audioChunks, command) {
 		});
 
 		const text = res.data?.result?.text || "";
-
+		console.log(text)
 		// 2. 响应客户端
 		sendMessage(ws, {
 			type: "stopped",
@@ -163,7 +163,7 @@ async function sendToThink(command) {
 async function sendToBigModel(text, command) {
 	const url = ConfigService.get('digital_url');
 	if (!url) return null;
-
+	console.log(command)
 	try {
 		const res = await axios.post(url, {
 			text: text,
