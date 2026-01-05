@@ -29,7 +29,8 @@ const sendMessage = (ws, payload) => {
 
 const handleSocketConnection = (ws, wss, req) => {
 	const clientIp = req.socket.remoteAddress;
-	let audioChunks = []; // 改用 let 方便彻底清空内存
+	let audioChunks = [];
+	let sessionData = {};
 
 	ws.on("message", async (data, isBinary) => {
 		if (isBinary) {
@@ -46,10 +47,12 @@ const handleSocketConnection = (ws, wss, req) => {
 
 			switch (commandType) {
 				case "start":
-					audioChunks = []; // 彻底重置
+					audioChunks = [];
+					sessionData.name = command.name
+					sessionData.num = command.num
 					sendMessage(ws, {
 						type: "started",
-						message: "语音识别已启动，开始收集音频数据"
+						message: `语音识别已启动，用户: ${sessionData.name}`
 					});
 					// 异步触发，不阻塞主流程
 					sendToThink(command).catch(() => {
@@ -57,8 +60,9 @@ const handleSocketConnection = (ws, wss, req) => {
 					break;
 
 				case "stop":
-					await handleStopCommand(ws, audioChunks, command);
-					audioChunks = []; // 处理完后清空
+					await handleStopCommand(ws, audioChunks, sessionData);
+					audioChunks = [];
+					sessionData = {};
 					break;
 
 				case "ping":
@@ -160,15 +164,15 @@ async function sendToThink(command) {
 	}
 }
 
-async function sendToBigModel(text, command) {
+async function sendToBigModel(text, sessionData) {
 	const url = ConfigService.get('digital_url');
 	if (!url) return null;
-	console.log(command)
+	console.log(sessionData)
 	try {
 		const res = await axios.post(url, {
 			text: text,
-			type: command.num || 1,
-			user: {name: command.name || ''}
+			type: sessionData.num || 1,
+			user: {name: sessionData.name || '通通'}
 		}, {timeout: 5000});
 		return res.data;
 	} catch (err) {
