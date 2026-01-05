@@ -110,7 +110,7 @@ async function runAsrWorkflow(item) {
 			: ''
 	}
 
-	console.log(`任务 ${requestId} 完成，结果已获取`);
+	console.log(`任务${taskId}, ${requestId} 完成，结果已获取`);
 	// 如果是云端，则广播给所有连接的客户端（包括你的本地机器）
 	if (process.env.IS_CLOUD === 'true') {
 		const payload = JSON.stringify({

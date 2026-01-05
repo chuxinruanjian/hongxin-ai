@@ -10,30 +10,50 @@ function connectToCloud() {
 	const wsUrl = process.env.CLOUD_WS_URL || 'ws://localhost:3000/notice';
 	const ws = new WebSocket(wsUrl);
 
+	// 定义心跳定时器
+	let heartbeatInterval;
+
 	ws.on('open', () => {
 		console.log('已成功连接云端通知中心');
+
+		// --- 启动心跳 ---
+		// 每 30 秒发送一次 ping 包
+		heartbeatInterval = setInterval(() => {
+			if (ws.readyState === WebSocket.OPEN) {
+				ws.ping();
+			}
+		}, 30000);
 	});
 
 	ws.on('message', (data) => {
 		try {
-			const message = JSON.parse(data);
+			const msgString = data.toString();
+			const message = JSON.parse(msgString);
+
 			if (message.type === 'ASR_COMPLETE') {
 				console.log('收到云端 ASR 完成通知:', message);
-				// 在这里触发本地逻辑，比如：
-				saveAsrToMysql(message)
+				saveAsrToMysql(message);
 			}
 		} catch (e) {
 			console.error('解析云端消息失败:', e);
 		}
 	});
 
-	ws.on('close', () => {
-		console.log('与云端连接断开，5秒后尝试重连...');
-		setTimeout(connectToCloud, 5000); // 自动重连
-	});
+	const handleClose = () => {
+		console.log('与云端连接断开，清理资源并重连...');
+
+		// 清除心跳定时器，防止内存泄漏
+		clearInterval(heartbeatInterval);
+
+		// 5秒后重连
+		setTimeout(connectToCloud, 5000);
+	};
+
+	ws.on('close', handleClose);
 
 	ws.on('error', (err) => {
 		console.error('WS 客户端错误:', err.message);
+		ws.terminate();
 	});
 }
 
