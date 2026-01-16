@@ -8,6 +8,7 @@ const { startMqtt } = require('./src/mqtt');
 const {handleUpgrade} = require("./src/handlers/socketRouter");
 const {connectToCloud} = require("./src/services/cloudNotifier");
 const ConfigService = require('./src/services/configService');
+const redisService = require('./src/services/redisService');
 
 const audioRouter = require("./src/routes/audio");
 const broadcastRouter = require('./src/routes/broadcast');
@@ -36,6 +37,9 @@ async function startServer() {
 	try {
 		// 初始化加载配置
 		await ConfigService.load();
+
+		// 初始化 Redis 连接
+		redisService.init();
 
 		// 测试数据库连接是否正常
 		await db.sequelize.authenticate();
