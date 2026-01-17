@@ -4,6 +4,8 @@ const path = require("path");
 const {default: axios} = require("axios");
 const {v4: uuidv4} = require("uuid");
 const ConfigService = require('../services/configService');
+const db = require('../../models');
+const mqttMessageService = require('../services/mqttMessageService');
 
 // --- 常量配置 ---
 const AUDIO_SAVE_DIR = path.join(process.cwd(), "uploads", "records");
@@ -148,34 +150,110 @@ async function saveAudioFile(buffer) {
 	await fs.promises.writeFile(filePath, buffer);
 }
 
-async function sendToThink(command) {
-	const url = ConfigService.get('digital_start');
-	if (!url) return null;
-
+/**
+ * 获取当前展项（从 Redis 读取，然后查询数据库）
+ */
+async function getCurrentExhibition() {
 	try {
-		const res = await axios.post(url, {
-			user: {name: command.name || ''}
-		}, {timeout: 5000});
-		return res.data;
-	} catch (err) {
-		logAxiosError('ThinkAPI', err);
+		// 从 Redis 获取当前展项信息
+		const data = await mqttMessageService.getCurrentExhibition();
+		
+		if (!data || !data.exhibition_id) {
+			throw new Error('无当前展项');
+		}
+
+		// 查询数据库获取展项详情
+		const exhibition = await db.Exhibition.findByPk(data.exhibition_id);
+		
+		if (!exhibition) {
+			throw new Error('展项不存在');
+		}
+
+		if (!exhibition.ip) {
+			throw new Error('该展项未配置IP');
+		}
+
+		return exhibition;
+	} catch (error) {
+		console.error('获取当前展项失败:', error.message);
+		throw error;
+	}
+}
+
+/**
+ * 构建数字人接口 URL
+ */
+async function getDigitalUrl(ip, slot) {
+	// 缓存 settings，避免重复查询
+	if (!getDigitalUrl.settingsCache) {
+		const settings = await db.Setting.findAll();
+		getDigitalUrl.settingsCache = {};
+		settings.forEach(setting => {
+			getDigitalUrl.settingsCache[setting.slot] = setting.body;
+		});
+	}
+
+	const settingBody = getDigitalUrl.settingsCache[slot];
+	if (!settingBody) {
+		throw new Error(`未配置接口地址：${slot}`);
+	}
+
+	return `http://${ip}${settingBody}`;
+}
+
+/**
+ * 统一向当前展项发送请求
+ */
+async function sendToExhibition(slot, payload) {
+	try {
+		const exhibition = await getCurrentExhibition();
+		const url = await getDigitalUrl(exhibition.ip, slot);
+
+		// 发送前日志
+		console.log('Digital request send', {
+			slot,
+			exhibition_id: exhibition.id,
+			ip: exhibition.ip,
+			url,
+			payload
+		});
+
+		await axios.post(url, payload, { timeout: 3000 });
+	} catch (error) {
+		console.error('Digital request failed', {
+			slot,
+			error: error.message
+		});
+		throw error;
+	}
+}
+
+/**
+ * 数字人启动
+ */
+async function sendToThink(command) {
+	try {
+		await sendToExhibition('digital_start', {
+			user: { name: command.name || '' }
+		});
+		return { message: '发送成功' };
+	} catch (error) {
 		return null;
 	}
 }
 
+/**
+ * 数字人发送 URL / 文本
+ */
 async function sendToBigModel(text, sessionData) {
-	const url = ConfigService.get('digital_url');
-	if (!url) return null;
-	console.log(sessionData)
 	try {
-		const res = await axios.post(url, {
+		await sendToExhibition('digital_url', {
 			text: text,
 			type: 1,
-			user: {name: sessionData.name || '通通'}
-		}, {timeout: 5000});
-		return res.data;
-	} catch (err) {
-		logAxiosError('BigModelAPI', err);
+			user: { name: sessionData.name || '通通' }
+		});
+		return { message: '发送成功' };
+	} catch (error) {
 		return null;
 	}
 }
