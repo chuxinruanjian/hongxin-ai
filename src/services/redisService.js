@@ -31,12 +31,12 @@ class RedisService {
 
 		this.client.on("connect", () => {
 			this.isConnected = true;
-			console.log("✅ Redis 连接成功");
+			console.log("Redis 连接成功");
 		});
 
 		this.client.on("error", (err) => {
 			this.isConnected = false;
-			console.error("❌ Redis 连接错误:", err.message);
+			console.error("Redis 连接错误:", err.message);
 		});
 
 		this.client.on("close", () => {

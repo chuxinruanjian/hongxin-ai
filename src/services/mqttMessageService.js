@@ -7,46 +7,20 @@ const redisService = require("./redisService");
  */
 class MqttMessageService {
 	constructor() {
-		// Redis key 前缀（兼容 Laravel，Laravel 默认使用 laravel_database: 前缀）
-		this.redisPrefix = process.env.REDIS_PREFIX || "laravel_database:";
-		// 固定的 Redis key（用于存储当前展厅信息）
-		this.currentExhibitionKey = `${this.redisPrefix}current_exhibition`;
+		this.currentExhibitionKey = 'current_exhibition';
 	}
 
 	/**
 	 * 保存 MQTT 消息到 Redis（更新当前展厅信息）
-	 * @param {Object} packet - MQTT 消息包
-	 * @param {Object} client - MQTT 客户端对象
+	 * @param {Object} messageData - 已解析的消息数据（必须包含 exhibition_id）
+	 * @param {string} topic - MQTT 主题
+	 * @param {string} clientId - 客户端 ID
 	 */
-	async saveMessage(packet, client) {
-		if (!client) {
-			return;
-		}
-
+	async saveMessage(messageData, topic, clientId) {
 		try {
 			const redis = redisService.getClient();
 			if (!redis || !redisService.isConnected) {
 				console.warn("Redis 未连接，跳过消息保存");
-				return;
-			}
-
-			const message = packet.payload.toString();
-			const topic = packet.topic;
-			const clientId = client.id;
-
-			// 解析消息内容（假设是 JSON 格式）
-			let messageData = {};
-			try {
-				messageData = JSON.parse(message);
-			} catch (e) {
-				// 如果不是 JSON，直接返回，不保存
-				console.log("消息不是 JSON 格式，跳过保存");
-				return;
-			}
-
-			// 判断是否有 exhibition_id，没有就不保存
-			if (!messageData.hasOwnProperty("exhibition_id") || messageData.exhibition_id === null || messageData.exhibition_id === undefined) {
-				console.log("消息中没有 exhibition_id，跳过保存");
 				return;
 			}
 
@@ -58,8 +32,7 @@ class MqttMessageService {
 				exhibition_id: messageData.exhibition_id,
 				client_id: clientId,
 				topic: topic,
-				message: message,
-				timestamp: timestamp,
+				message: JSON.stringify(messageData),
 				unix_timestamp: unixTimestamp,
 				updated_at: timestamp,
 			};
@@ -79,10 +52,26 @@ class MqttMessageService {
 	}
 
 	/**
-	 * 获取 Redis key 前缀
+	 * 获取当前展厅信息
+	 * @returns {Object|null} 当前展厅信息，如果不存在返回 null
 	 */
-	getPrefix() {
-		return this.redisPrefix;
+	async getCurrentExhibition() {
+		try {
+			const redis = redisService.getClient();
+			if (!redis || !redisService.isConnected) {
+				return null;
+			}
+
+			const data = await redis.get(this.currentExhibitionKey);
+			if (!data) {
+				return null;
+			}
+
+			return JSON.parse(data);
+		} catch (error) {
+			console.error("获取当前展厅信息失败:", error.message);
+			return null;
+		}
 	}
 
 	/**
