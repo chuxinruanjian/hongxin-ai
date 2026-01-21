@@ -73,6 +73,42 @@ const initMqttBroker = () => {
 			return;
 		}
 
+		// 数字人激活/停用（仅在切换时触发，异步不阻塞）
+		Promise.resolve()
+			.then(async () => {
+				let oldExhibition = null;
+				if (currentExhibition && currentExhibition.exhibition_id) {
+					oldExhibition = await mqttMessageService.getExhibitionById(
+						currentExhibition.exhibition_id
+					);
+				}
+
+				const newExhibition = await mqttMessageService.getExhibitionById(
+					newExhibitionId
+				);
+
+				if (newExhibition && newExhibition.ip) {
+					await mqttMessageService.sendToExhibitionByIp(
+						"digital_activate",
+						newExhibition.ip,
+						{ exhibition_id: newExhibitionId },
+						newExhibitionId
+					);
+				}
+
+				if (oldExhibition && oldExhibition.ip) {
+					await mqttMessageService.sendToExhibitionByIp(
+						"digital_deactivate",
+						oldExhibition.ip,
+						{ exhibition_id: oldExhibition.id },
+						oldExhibition.id
+					);
+				}
+			})
+			.catch((error) => {
+				console.error("Digital activate/deactivate failed:", error.message);
+			});
+
 		// 5. 如果不一致，发布广播并保存
 		console.log(
 			`展厅ID 发生变化: ${currentExhibition?.exhibition_id || "无"} -> ${newExhibitionId}，执行切换操作`

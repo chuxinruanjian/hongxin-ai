@@ -4,7 +4,6 @@ const path = require("path");
 const {default: axios} = require("axios");
 const {v4: uuidv4} = require("uuid");
 const ConfigService = require('../services/configService');
-const db = require('../../models');
 const mqttMessageService = require('../services/mqttMessageService');
 
 // --- 常量配置 ---
@@ -56,7 +55,7 @@ const handleSocketConnection = (ws, wss, req) => {
 						message: `语音识别已启动，用户: ${sessionData.name}`
 					});
 					// 异步触发，不阻塞主流程
-					sendToThink(command).catch(() => {
+					mqttMessageService.sendToThink(command).catch(() => {
 					});
 					break;
 
@@ -128,7 +127,7 @@ async function handleStopCommand(ws, audioChunks, command) {
 
 		// 3. 异步触发后续逻辑（保存文件 & 大模型处理）
 		saveAudioFile(wavBuffer).catch(console.error);
-		sendToBigModel(text, command).catch(() => {
+		mqttMessageService.sendToBigModel(text, command).catch(() => {
 		});
 
 	} catch (error) {
@@ -148,122 +147,6 @@ async function saveAudioFile(buffer) {
 	const fileName = `${dayjs().format("YYYYMMDD_HHmmss")}_${uuidv4().slice(0, 8)}.wav`;
 	const filePath = path.join(AUDIO_SAVE_DIR, fileName);
 	await fs.promises.writeFile(filePath, buffer);
-}
-
-/**
- * 获取当前展项（从 Redis 读取，然后查询数据库）
- */
-async function getCurrentExhibition() {
-	try {
-		// 从 Redis 获取当前展项信息
-		const data = await mqttMessageService.getCurrentExhibition();
-		
-		if (!data || !data.exhibition_id) {
-			throw new Error('无当前展项');
-		}
-
-		// 查询数据库获取展项详情
-		const exhibition = await db.Exhibition.findByPk(data.exhibition_id);
-		
-		if (!exhibition) {
-			throw new Error('展项不存在');
-		}
-
-		if (!exhibition.ip) {
-			throw new Error('该展项未配置IP');
-		}
-
-		return exhibition;
-	} catch (error) {
-		console.error('获取当前展项失败:', error.message);
-		throw error;
-	}
-}
-
-/**
- * 构建数字人接口 URL
- */
-async function getDigitalUrl(ip, slot) {
-	// 缓存 settings，避免重复查询
-	if (!getDigitalUrl.settingsCache) {
-		const settings = await db.Setting.findAll();
-		getDigitalUrl.settingsCache = {};
-		settings.forEach(setting => {
-			getDigitalUrl.settingsCache[setting.slot] = setting.body;
-		});
-	}
-
-	const settingBody = getDigitalUrl.settingsCache[slot];
-	if (!settingBody) {
-		throw new Error(`未配置接口地址：${slot}`);
-	}
-
-	return `http://${ip}${settingBody}`;
-}
-
-/**
- * 统一向当前展项发送请求
- */
-async function sendToExhibition(slot, payload) {
-	try {
-		const exhibition = await getCurrentExhibition();
-		const url = await getDigitalUrl(exhibition.ip, slot);
-
-		// 发送前日志
-		console.log('Digital request send', {
-			slot,
-			exhibition_id: exhibition.id,
-			ip: exhibition.ip,
-			url,
-			payload
-		});
-
-		await axios.post(url, payload, { timeout: 3000 });
-	} catch (error) {
-		console.error('Digital request failed', {
-			slot,
-			error: error.message
-		});
-		throw error;
-	}
-}
-
-/**
- * 数字人启动
- */
-async function sendToThink(command) {
-	try {
-		await sendToExhibition('digital_start', {
-			user: { name: command.name || '' }
-		});
-		return { message: '发送成功' };
-	} catch (error) {
-		return null;
-	}
-}
-
-/**
- * 数字人发送 URL / 文本
- */
-async function sendToBigModel(text, sessionData) {
-	try {
-		await sendToExhibition('digital_url', {
-			text: text,
-			type: 1,
-			user: { name: sessionData.name || '通通' }
-		});
-		return { message: '发送成功' };
-	} catch (error) {
-		return null;
-	}
-}
-
-function logAxiosError(label, err) {
-	if (err.response) {
-		console.error(`[${label}] 响应错误:`, err.response.status);
-	} else {
-		console.error(`[${label}] 网络错误:`, err.message);
-	}
 }
 
 /**
