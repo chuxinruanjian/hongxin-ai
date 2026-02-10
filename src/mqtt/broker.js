@@ -1,6 +1,6 @@
 const aedes = require("aedes")();
 const net = require("net");
-const mqttMessageService = require("../services/mqttMessageService");
+const { switchExhibition } = require("../services/switchExhibitionService");
 
 const initMqttBroker = () => {
 	const port = process.env.MQTT_PORT || 1883;
@@ -58,91 +58,9 @@ const initMqttBroker = () => {
 		}
 
 		const newExhibitionId = messageData.exhibition_id;
+		const deviceId = messageData.device_id || clientId;
 
-		// 3. 查询 Redis 中的当前展厅信息
-		const currentExhibition = await mqttMessageService.getCurrentExhibition();
-
-		// 4. 比较 exhibition_id
-		if (
-			currentExhibition &&
-			currentExhibition.exhibition_id === newExhibitionId
-		) {
-			console.log(
-				`展厅ID ${newExhibitionId} 与当前展厅一致，跳过后续操作`
-			);
-			return;
-		}
-
-		// 数字人激活/停用（仅在切换时触发，异步不阻塞）
-		Promise.resolve()
-			.then(async () => {
-				let oldExhibition = null;
-				if (currentExhibition && currentExhibition.exhibition_id) {
-					oldExhibition = await mqttMessageService.getExhibitionById(
-						currentExhibition.exhibition_id
-					);
-				}
-
-				const newExhibition = await mqttMessageService.getExhibitionById(
-					newExhibitionId
-				);
-
-				if (newExhibition && newExhibition.ip) {
-					await mqttMessageService.sendToExhibitionByIp(
-						"digital_activate",
-						newExhibition.ip,
-						{ exhibition_id: newExhibitionId },
-						newExhibitionId
-					);
-				}
-
-				if (oldExhibition && oldExhibition.ip) {
-					await mqttMessageService.sendToExhibitionByIp(
-						"digital_deactivate",
-						oldExhibition.ip,
-						{ exhibition_id: oldExhibition.id },
-						oldExhibition.id
-					);
-				}
-			})
-			.catch((error) => {
-				console.error("Digital activate/deactivate failed:", error.message);
-			});
-
-		// 5. 如果不一致，发布广播并保存
-		console.log(
-			`展厅ID 发生变化: ${currentExhibition?.exhibition_id || "无"} -> ${newExhibitionId}，执行切换操作`
-		);
-
-		// 5.1 发布广播到 device/all/event 频道
-		const broadcastTopic = "device/all/event";
-		const broadcastMessage = JSON.stringify({
-			type: "SWITCH_EXHIBITION",
-			exhibition_id: newExhibitionId,
-			device_id: messageData.device_id || clientId,
-			timestamp: Date.now(),
-		});
-
-		aedes.publish(
-			{
-				topic: broadcastTopic,
-				payload: Buffer.from(broadcastMessage),
-				qos: 1,
-				retain: true,
-			},
-			(err) => {
-				if (err) {
-					console.error("发布广播消息失败:", err.message);
-				} else {
-					console.log(
-						`已发布广播消息到 ${broadcastTopic}: ${broadcastMessage}`
-					);
-				}
-			}
-		);
-
-		// 5.2 保存到 Redis（传入已解析的数据）
-		await mqttMessageService.saveMessage(messageData, topic, clientId);
+		await switchExhibition(newExhibitionId, clientId, deviceId, topic);
 	});
 
 	return aedes;
