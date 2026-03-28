@@ -30,8 +30,13 @@ const sendMessage = (ws, payload) => {
 
 const handleSocketConnection = (ws, wss, req) => {
 	const clientIp = req.socket.remoteAddress;
+	const u = new URL(req.url || "/speech", "http://127.0.0.1");
+	const divideParam = u.searchParams.get("divide_id");
+	const connectionDivideId =
+		divideParam === null || divideParam === "" ? undefined : divideParam;
+
 	let audioChunks = [];
-	let sessionData = {};
+	let sessionData = { divideId: connectionDivideId };
 
 	ws.on("message", async (data, isBinary) => {
 		if (isBinary) {
@@ -49,20 +54,21 @@ const handleSocketConnection = (ws, wss, req) => {
 			switch (commandType) {
 				case "start":
 					audioChunks = [];
-					sessionData.name = command.name
+					sessionData.name = command.name;
+					sessionData.divideId = connectionDivideId;
 					sendMessage(ws, {
 						type: "started",
 						message: `语音识别已启动，用户: ${sessionData.name}`
 					});
 					// 异步触发，不阻塞主流程
-					mqttMessageService.sendToThink(command).catch(() => {
+					mqttMessageService.sendToThink(command, sessionData.divideId).catch(() => {
 					});
 					break;
 
 				case "stop":
 					await handleStopCommand(ws, audioChunks, sessionData);
 					audioChunks = [];
-					sessionData = {};
+					sessionData = { divideId: connectionDivideId };
 					break;
 
 				case "ping":
@@ -99,11 +105,17 @@ async function handleStopCommand(ws, audioChunks, command) {
 		// 1. 调用豆包 ASR
 		const speechKey = ConfigService.get('doubao_speech_key');
 		const speechToken = ConfigService.get('doubao_speech_token');
+		const doubaoBoostingTableId = ConfigService.get('doubao_boosting_table_id');
+		const doubaoCorrectTableId = ConfigService.get('doubao_correct_table_id');
 
 		const res = await axios.post(BYTEDANCE_ASR_URL, {
 			user: {uid: speechKey},
 			audio: {data: wavBuffer.toString("base64")},
-			request: {model_name: "bigmodel"}
+			request: {
+				model_name: "bigmodel",
+				boosting_table_id: doubaoBoostingTableId,
+				correct_table_id: doubaoCorrectTableId
+			}
 		}, {
 			headers: {
 				'X-Api-App-Key': speechKey,

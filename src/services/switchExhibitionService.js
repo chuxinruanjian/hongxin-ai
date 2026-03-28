@@ -1,4 +1,14 @@
 const mqttMessageService = require("./mqttMessageService");
+const normalizeDivideId = mqttMessageService.normalizeDivideId;
+
+/**
+ * WebSocket 客户端分组与当前切换分组是否一致（含全局 undefined）
+ */
+function wsMatchesDivide(wsDivideId, effectiveDivideId) {
+	return (
+		normalizeDivideId(wsDivideId) === normalizeDivideId(effectiveDivideId)
+	);
+}
 
 /**
  * 执行展项切换（与 MQTT 收到切换消息时的逻辑一致）
@@ -9,7 +19,19 @@ const mqttMessageService = require("./mqttMessageService");
  * @returns {Promise<{switched: boolean, reason?: string}>}
  */
 async function switchExhibition(exhibitionId, clientId, deviceId, sourceTopic) {
-	const currentExhibition = await mqttMessageService.getCurrentExhibition();
+	const newExhibitionRow = await mqttMessageService.getExhibitionByIdNoError(
+		exhibitionId
+	);
+	if (!newExhibitionRow) {
+		console.error("切换失败：展项不存在", exhibitionId);
+		return { switched: false, reason: "exhibition_not_found" };
+	}
+
+	const effectiveDivideId = normalizeDivideId(newExhibitionRow.divideId);
+
+	const currentExhibition = await mqttMessageService.getCurrentExhibition(
+		effectiveDivideId
+	);
 
 	if (
 		currentExhibition &&
@@ -26,24 +48,14 @@ async function switchExhibition(exhibitionId, clientId, deviceId, sourceTopic) {
 		.then(async () => {
 			let oldExhibition = null;
 			if (currentExhibition && currentExhibition.exhibition_id) {
-				try {
-					oldExhibition = await mqttMessageService.getExhibitionById(
-						currentExhibition.exhibition_id
-					);
-				} catch (e) {
-					// 旧展项可能已删除，忽略
-				}
+				oldExhibition = await mqttMessageService.getExhibitionByIdNoError(
+					currentExhibition.exhibition_id
+				);
 			}
 
-			let newExhibition = null;
-			try {
-				newExhibition = await mqttMessageService.getExhibitionById(
-					exhibitionId
-				);
-			} catch (e) {
-				console.error("目标展项不存在或未配置:", e.message);
-				return;
-			}
+			const newExhibition = await mqttMessageService.getExhibitionByIdNoError(
+				exhibitionId
+			);
 
 			if (newExhibition && newExhibition.ip) {
 				await mqttMessageService.sendToExhibitionByIp(
@@ -71,7 +83,7 @@ async function switchExhibition(exhibitionId, clientId, deviceId, sourceTopic) {
 		`展厅ID 发生变化: ${currentExhibition?.exhibition_id || "无"} -> ${exhibitionId}，执行切换操作`
 	);
 
-	const broadcastTopic = "device/all/event";
+	const broadcastTopic = mqttMessageService.switchBroadcastTopic(effectiveDivideId);
 	const broadcastMessage = JSON.stringify({
 		type: "SWITCH_EXHIBITION",
 		exhibition_id: exhibitionId,
@@ -104,8 +116,44 @@ async function switchExhibition(exhibitionId, clientId, deviceId, sourceTopic) {
 	await mqttMessageService.saveMessage(
 		{ exhibition_id: exhibitionId },
 		topic,
-		clientId
+		clientId,
+		effectiveDivideId
 	);
+
+	// 通知同一分组下连接 wssApp 的客户端
+	try {
+		const { wssApp } = require("../handlers/socketRouter");
+		const current = await mqttMessageService.getCurrentExhibition(
+			effectiveDivideId
+		);
+		let detail = null;
+		if (current?.exhibition_id) {
+			detail = await mqttMessageService.getExhibitionByIdNoError(
+				current.exhibition_id
+			);
+		}
+		const payload = JSON.stringify({
+			type: "switchExhibition",
+			data: {
+				exhibition_id: current?.exhibition_id,
+				exhibition_name: detail?.title,
+				client_id: current?.client_id,
+				updated_at: current?.updated_at,
+				divide_id: current?.divide_id ?? null,
+			},
+		});
+		wssApp.clients.forEach((client) => {
+			if (client.readyState !== 1) {
+				return;
+			}
+			if (!wsMatchesDivide(client._divideId, effectiveDivideId)) {
+				return;
+			}
+			client.send(payload);
+		});
+	} catch (e) {
+		// 忽略：可能 socketRouter 未加载（如单测场景）
+	}
 
 	return { switched: true };
 }

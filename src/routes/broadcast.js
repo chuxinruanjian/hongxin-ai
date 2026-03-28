@@ -1,30 +1,43 @@
-const express = require('express');
-const dayjs = require('dayjs');
-const {getMqtt} = require('../mqtt');
+const express = require("express");
+const dayjs = require("dayjs");
+const { getMqtt } = require("../mqtt");
+const mqttMessageService = require("../services/mqttMessageService");
 
 const router = express.Router();
 
-router.post('/', (req, res) => {
-	const {exhibition_id} = req.body;
+router.post("/", async (req, res) => {
+	try {
+		const { exhibition_id } = req.body;
 
-	const mqtt = getMqtt();
+		const exhibition = await mqttMessageService.getExhibitionByIdNoError(
+			exhibition_id
+		);
+		const topic = mqttMessageService.switchBroadcastTopic(
+			exhibition?.divideId
+		);
 
-	const message = JSON.stringify({
-		type: 'SWITCH_EXHIBITION',
-		exhibition_id,
-		operator: 'system',
-		time: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-		timestamp: dayjs().valueOf()
-	});
+		const mqtt = getMqtt();
 
-	mqtt.publish({
-		topic: 'device/all/event',
-		payload: message,
-		qos: 1,
-		retain: true
-	});
+		const message = JSON.stringify({
+			type: "SWITCH_EXHIBITION",
+			exhibition_id,
+			operator: "system",
+			time: dayjs().format("YYYY-MM-DD HH:mm:ss"),
+			timestamp: dayjs().valueOf(),
+		});
 
-	res.json({status: 'success'});
+		mqtt.publish({
+			topic,
+			payload: message,
+			qos: 1,
+			retain: true,
+		});
+
+		res.json({ status: "success", topic });
+	} catch (error) {
+		console.error("广播失败:", error.message);
+		res.status(500).json({ status: "error", message: error.message });
+	}
 });
 
 module.exports = router;

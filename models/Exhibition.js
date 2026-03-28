@@ -72,6 +72,12 @@ module.exports = (sequelize, DataTypes) => {
 			allowNull: true,
 			defaultValue: 0,
 			comment: '停留时长（秒）'
+		},
+		divideId: {
+			field: 'divide_id',
+			type: DataTypes.STRING,
+			allowNull: true,
+			comment: '分组ID'
 		}
 	}, {
 		sequelize,
