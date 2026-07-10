@@ -169,7 +169,6 @@ class MqttMessageService {
 		if (!exhibition.ip) {
 			throw new Error("该展项未配置IP");
 		}
-
 		return exhibition;
 	}
 
@@ -261,6 +260,7 @@ class MqttMessageService {
 			console.error("Digital request failed", {
 				slot: "digital_url",
 				error: error.message,
+				text
 			});
 			return null;
 		}

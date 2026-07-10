@@ -267,25 +267,38 @@
 </head>
 <body>
   <div class="container">
-    <h1>🎤 短语音识别测试</h1>
-    <p class="subtitle">HongXinOS - 语音识别</p>
+    <h1>🎤 语音识别测试</h1>
+    <p class="subtitle">HongXinOS · 与 /speech 流式/极速后端同一协议</p>
 
     <div id="status" class="status disconnected">
       ⚫ 未连接
     </div>
 
     <div class="info-box">
-      <strong>使用说明：</strong><br>
-      1. 点击"开始录音"开始收集音频数据<br>
-      2. 说话后点击"停止录音"进行识别<br>
-      3. 识别结果会在停止后显示
+      <strong>流式对接（服务端 <code>DOUBAO_ASR_BACKEND=streaming</code>）：</strong><br>
+      1. 连接 <code>ws(s)://主机/speech</code>，可选 <code>?divide_id=</code><br>
+      2. <code>start</code> 后服务端与豆包建立流式通道，再发 <strong>二进制 PCM</strong>；说话过程中会不断收到 <code>asr_partial</code>，本页<strong>实时刷新</strong>识别文字<br>
+      3. <code>stop</code> 后再收到一帧 <code>asr_partial</code>（末次）及 <code>stopped</code>（仅含 <code>text</code>）<br>
+      4. 若握手报 HTTP 400：请在控制台核对流式 Resource-Id（Setting：<code>doubao_streaming_resource_id</code>，默认 <code>volc.seedasr.sauc.duration</code>）与 AppKey 是否同一应用
     </div>
 
     <div class="config">
       <div class="config-row">
-        <div class="config-label">服务器地址:</div>
-        <div class="config-value" style="font-family: monospace; color: #666;">
-          ws://localhost:9650/speech
+        <div class="config-label">divide_id:</div>
+        <div class="config-value">
+          <input id="divideIdInput" type="text" placeholder="留空=全局分组" style="width:100%; max-width:280px; padding:6px 8px; border:1px solid #ccc; border-radius:6px; font-family:monospace; font-size:13px;" />
+        </div>
+      </div>
+      <div class="config-row">
+        <div class="config-label">用户昵称:</div>
+        <div class="config-value">
+          <input id="userNameInput" type="text" value="测试用户" style="width:100%; max-width:280px; padding:6px 8px; border:1px solid #ccc; border-radius:6px; font-size:13px;" />
+        </div>
+      </div>
+      <div class="config-row">
+        <div class="config-label">WebSocket:</div>
+        <div class="config-value" id="wsUrlDisplay" style="font-family: monospace; color: #444; word-break: break-all; font-size: 11px;">
+          （随页面自动计算）
         </div>
       </div>
       <div class="config-row">
@@ -304,7 +317,7 @@
     </div>
 
     <div class="result-container">
-      <div class="result-label">识别结果</div>
+      <div class="result-label">实时识别（流式 partial）</div>
       <div id="result" class="result-box empty">等待识别结果...</div>
 
       <div class="result-label">日志</div>
@@ -327,6 +340,23 @@
     const logsEl = document.getElementById('logs');
     const permissionStatusEl = document.getElementById('permissionStatus');
     const checkPermissionBtn = document.getElementById('checkPermissionBtn');
+    const divideIdInput = document.getElementById('divideIdInput');
+    const userNameInput = document.getElementById('userNameInput');
+    const wsUrlDisplay = document.getElementById('wsUrlDisplay');
+
+    function getSpeechWebSocketUrl() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const divide = (divideIdInput.value || '').trim();
+      const q = divide ? ('?divide_id=' + encodeURIComponent(divide)) : '';
+      return proto + '//' + location.host + '/speech' + q;
+    }
+
+    function refreshWsUrlDisplay() {
+      wsUrlDisplay.textContent = getSpeechWebSocketUrl();
+    }
+
+    divideIdInput.addEventListener('input', refreshWsUrlDisplay);
+    refreshWsUrlDisplay();
 
     function log(message, type = 'info') {
       const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
@@ -418,42 +448,60 @@
         updateStatus('🔄 正在连接...', 'disconnected');
         log('正在连接 WebSocket...', 'info');
 
-        ws = new WebSocket('ws://localhost:9650/speech');
-        // ws = new WebSocket('wss://ai.chuxinruanjian.com/speech');
+        const speechUrl = getSpeechWebSocketUrl();
+        log('连接: ' + speechUrl, 'info');
+        ws = new WebSocket(speechUrl);
 
         ws.onopen = () => {
           updateStatus('✅ 已连接', 'connected');
           log('WebSocket 连接成功', 'success');
 
-          // 2. 启动语音识别
-          log('发送 start 指令', 'info');
+          const name = (userNameInput.value || '用户').trim();
+          log('发送 start（含 name，供数字人等业务）', 'info');
           ws.send(JSON.stringify({
             type: 'start',
-            num: 1
+            name: name
           }));
         };
 
         ws.onmessage = (event) => {
-          const message = JSON.parse(event.data);
+          let message;
+          try {
+            message = JSON.parse(event.data);
+          } catch (e) {
+            log('非 JSON 消息', 'error');
+            return;
+          }
+
+          if (message.type === 'asr_partial') {
+            const t = message.text != null ? String(message.text) : '';
+            resultEl.textContent = t || '…';
+            resultEl.className = 'result-box has-content';
+            log('[实时] ' + (t.length > 80 ? t.slice(0, 80) + '…' : t), 'info');
+            return;
+          }
+
           log(`收到消息: ${message.type}`, 'info');
 
           if (message.type === 'started') {
-            updateStatus('🔴 正在录音...', 'recording');
-            log('语音识别已启动，开始录音', 'success');
+            updateStatus('🔴 正在录音（流式识别中）...', 'recording');
+            log('语音识别已启动（流式），开始推 PCM', 'success');
+            resultEl.textContent = '聆听中…';
+            resultEl.className = 'result-box empty';
             startRecording();
           } else if (message.type === 'stopped') {
             updateStatus('✅ 已停止', 'connected');
             log('语音识别已停止', 'info');
 
-            // 显示识别结果
-            if (message.hasResult && message.result) {
-              resultEl.textContent = message.result.fullText || message.result.text;
-              resultEl.className = 'result-box has-content';
-              log(`✅ 识别成功: ${message.result.fullText || message.result.text}`, 'success');
-            } else {
-              resultEl.textContent = message.error || '识别失败或无结果';
+            if (message.error) {
+              resultEl.textContent = message.error;
               resultEl.className = 'result-box error';
-              log(`❌ 识别失败: ${message.error || '无结果'}`, 'error');
+              log(`❌ 识别失败: ${message.error}`, 'error');
+            } else {
+              const text = message.text != null ? String(message.text) : (message.result?.text != null ? String(message.result.text) : '');
+              resultEl.textContent = text || '（空文本）';
+              resultEl.className = 'result-box has-content';
+              log(`✅ 定稿: ${text}`, 'success');
             }
 
             stopRecording();
@@ -490,19 +538,19 @@
     };
 
     stopBtn.onclick = () => {
-      log('停止录音...', 'info');
+      log('发送 stop 并结束采集…', 'info');
       updateStatus('⏳ 正在识别...', 'processing');
 
-      // 停止录音
-      stopRecording();
-
-      // 停止识别
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'stop' }));
       } else {
         updateStatus('❌ 连接已断开', 'disconnected');
-        log('WebSocket 连接已断开，无法发送停止指令', 'error');
+        log('WebSocket 未连接，无法发送 stop', 'error');
+        stopRecording();
+        return;
       }
+      // 略延迟再停采集，减少尾音截断（最后一帧 PCM 先发出）
+      setTimeout(() => stopRecording(), 40);
     };
 
     clearBtn.onclick = () => {

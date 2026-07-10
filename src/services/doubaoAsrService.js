@@ -5,7 +5,7 @@ const {wssNotice} = require("../handlers/socketRouter");
 const doubaoAppId = process.env.DOUBAO_APP_ID;
 const doubaoAccessToken = process.env.DOUBAO_ACCESS_TOKEN;
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(1, Number(ms) || 0)));
 
 /**
  * 提交 ASR 任务
